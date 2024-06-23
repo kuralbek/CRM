@@ -1,0 +1,20 @@
+# .gitignore
+
+# Игнорировать node_modules
+/client/node_modules
+
+# Игнорировать build output
+/client/build
+
+# Игнорировать .NET build output
+/WebApplication1/WebApplication1/bin
+/WebApplication1/WebApplication1/obj
+
+# Игнорировать environment файлы
+/WebApplication1/WebApplication1/appsettings*.json
+/client/.env
+
+# Игнорировать пользовательские файлы и временные файлы IDE
+.vscode/
+.idea/
+.vs/
