@@ -13,3 +13,8 @@ npm start
 
 cd ../WebApplication1
 dotnet run
+
+
+Логин и пароль для входа:
+admin
+123
