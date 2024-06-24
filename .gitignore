@@ -11,7 +11,6 @@
 /WebApplication1/WebApplication1/obj
 
 # Игнорировать environment файлы
-/WebApplication1/WebApplication1/appsettings*.json
 /client/.env
 
 # Игнорировать пользовательские файлы и временные файлы IDE
