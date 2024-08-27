@@ -1,4 +1,6 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using MediatR;
+using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using WebApplication1.data;
 using WebApplication1.DTO;
@@ -11,11 +13,14 @@ namespace WebApplication1.Controllers
     public class TaskController : Controller
     {
 
-        private AppDbContext _context;
-
-        public TaskController(AppDbContext context)
+        private readonly AppDbContext _context;
+        private readonly IAntiforgery _antiforgery;
+        private readonly IMediator _mediator;
+        public TaskController(AppDbContext context, IAntiforgery antiforgery, IMediator mediator)
         {
             _context = context;
+            _antiforgery = antiforgery;
+            _mediator = mediator;
         }
 
         [HttpPost]
@@ -69,7 +74,7 @@ namespace WebApplication1.Controllers
 
             var ts = await _context.Tasks.FindAsync(id);
 
-            ts.Title = task.Title;
+            ts!.Title = task.Title;
             ts.Description = task.Description;
             ts.DueDate = task.DueDate;
             ts.CompletionPercentage = task.CompletionPercentage;

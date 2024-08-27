@@ -1,13 +1,16 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using MediatR;
+using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using System.Security.Cryptography;
-using System.Text;
-using System.Threading.Tasks;
+using System.ComponentModel.DataAnnotations;
+
+using TaskCRM.Employee.Comand;
+using TaskCRM.Employee.Quries;
 using WebApplication1.data;
 using WebApplication1.DTO;
 using WebApplication1.Models;
+using WebApplication1.Services.Interface;
 namespace WebApplication1.Controllers
 {
     [Route("api/[controller]")]
@@ -16,54 +19,28 @@ namespace WebApplication1.Controllers
     {
 
         private AppDbContext _context;
-       // private readonly IPasswordHasher<Employee> _passwordHasher;
-
-        public eController(AppDbContext context)
+        private readonly IAuthService _authServices;
+        private readonly IAntiforgery _antiforgery;
+        private readonly IMediator _mediator;
+        public eController(AppDbContext context, IAuthService authService, IAntiforgery antiforgery,IMediator mediator)
         {
             _context = context;
-           
+            _authServices = authService;
+            _antiforgery = antiforgery;
+            _mediator = mediator;
+
         }
 
 
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<Employee>>> GetEmployees(string fullName)
+        public async Task<ActionResult<IEnumerable<Employee>>> GetEmployees(string fullName,int take,int skip)
         {
-            var query = _context.Employees.AsQueryable();
- 
-
-            if (fullName != "1")
-            {
-                Console.WriteLine($"The value of fullName is: {fullName}");
-                query = query.Where(e => e.FullName.Contains(fullName));
-            }
+            var tokens = _antiforgery.GetAndStoreTokens(HttpContext);
+            var query = new GetEmpQueries { fullName = fullName, take = take, skip = skip };
+            var result = await _mediator.Send(query);
 
 
-            var result = await query
-                .Where(e => e.Id != 1)
-                .GroupJoin(
-                    _context.Tasks,
-                    e => e.Id,
-                    t => t.EmployeeId,
-                    (e, ts) => new
-                    {
-                        Employee = e,
-                        Tasks = ts
-                    }
-                )
-                .SelectMany(
-                    ets => ets.Tasks.DefaultIfEmpty(),
-                    (e, t) => new { e.Employee, Task = t }
-                )
-                .GroupBy(et => new { et.Employee.Id, et.Employee.FullName, et.Employee.Position })
-                .Select(g => new EmpGetDTO
-                {
-                    Id = g.Key.Id,
-                    FullName = g.Key.FullName,
-                    Position = g.Key.Position,
-                    TaskCount = g.Count(et => et.Task != null && et.Task.DueDate >= DateTime.UtcNow),
-                    CompletionPercentage = g.Where(et => et.Task != null && et.Task.DueDate >= DateTime.UtcNow).Average(et => (double?)et.Task.CompletionPercentage)  ?? 0
-                })
-                .ToListAsync();
+            result.AntiForgeryToken = tokens.RequestToken;
 
             return Ok(result);
 
@@ -73,80 +50,74 @@ namespace WebApplication1.Controllers
         public async Task<ActionResult<EmpDTOClass>> GetEmployee(int id)
         {
 
-            var emp = await _context.Employees
+            var query = new GetEmpByIdQuery { Id = id };
+
+            var res = await _mediator.Send(query);
+
+            /*var emp = await _context.Employees
                 .Where(t => t.Id == id)
                 .Select(t => new EmpDTOClass
                 {
                     FullName = t.FullName,
                     Position = t.Position
                 })
-                .ToListAsync();
+                .ToListAsync();*/
 
-            if (emp == null || !emp.Any())
+           /* if (emp == null || !emp.Any())
             {
                 return NotFound();
-            }
+            }*/
 
-            return Ok(emp);
+            return Ok(res);
         }
 
         [HttpPost]
-        public async Task<ActionResult<Employee>> CreateEmployee(CreateEmpDTO employee)
+        [Route("[action]")]
+        [ValidateAntiForgeryToken]
+        [Consumes("application/x-www-form-urlencoded")]
+        public async Task<IActionResult> CreateEmployee([FromForm] CreateEmpDTO employee)
         {
-            if (employee == null)
+            try
             {
-                return BadRequest();
+                var comand = new CreateEmpCommand { Emp = employee };
+
+                var reslut = await _mediator.Send(comand);
+
+                return Ok(reslut);
+            }
+            catch (OperationCanceledException ex)
+            {
+                return StatusCode(499, $"Client closed request {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+                return StatusCode(500, $"Error.{ex.Message}");
+
             }
 
-            var emp = new Employee
-            {
-                FullName = employee.FullName,
-                Position = employee.Position,
-                Password = HashPassword("123")
-            };
-
-            //emp.Password = _passwordHasher.HashPassword(emp, emp.Password);
-
-            _context.Employees.Add(emp);
-            await _context.SaveChangesAsync();
-
-            return CreatedAtAction("GetEmployee", new { id = emp.Id }, employee);
         }
 
 
         [HttpPut("{id}")]
         public async Task<IActionResult> PutEmployee(int id, EmpEditDTO employee)
         {
-            if (id != employee.Id)
-            {
-                return BadRequest();
-            }
- 
-            var emp = await _context.Employees.FindAsync(id);
-
-            emp.FullName = employee.FullName;
-            emp.Position = employee.Position;
-            emp.Password = HashPassword(employee.Password);
 
             try
             {
-                await _context.SaveChangesAsync();
+                var command = new EditEmpCommand { Id = id, empEditDTO = employee };
+
+                var result = await _mediator.Send(command);
+
+                return Ok(result);
             }
-            catch (DbUpdateConcurrencyException)
+            catch (ValidationException ex)
             {
-
-                if (!EmployeeExists(id))
-                {
-                    return NotFound();
-                }
-                else
-                {
-                    throw;
-                }
+                Console.WriteLine(ex.Message);
+                return BadRequest(ex.Message);
             }
 
-            return NoContent();
-        }
+            }
 
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteEmployee(int id)
@@ -166,7 +137,7 @@ namespace WebApplication1.Controllers
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDTO login)
         {
-            if (await VerifyPasswordAsync(login.FullName, login.Password))
+            if (await _authServices.VerifyPasswordAsync(login.FullName, login.Password))
             {
                 return Ok(new { Message = "Login successful" });
             }
@@ -176,30 +147,7 @@ namespace WebApplication1.Controllers
             }
         }
 
-        private async Task<bool> VerifyPasswordAsync(string fullName, string enteredPassword)
-        {
-            var employee = await _context.Employees.SingleOrDefaultAsync(e => e.FullName == fullName);
-
-            if (employee == null)
-            {
-                return false; // User not found
-            }
-            return employee.Password == HashPassword(enteredPassword);
-        }
-
-        private bool EmployeeExists(int id)
-        {
-            return _context.Employees.Any(e => e.Id == id);
-        }
-
-        private string HashPassword(string password)
-        {
-            using (var sha256 = SHA256.Create())
-            {
-                var hashedBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(password));
-                return BitConverter.ToString(hashedBytes).Replace("-", "").ToLower();
-            }
-        }
+       
 
     }
 }
